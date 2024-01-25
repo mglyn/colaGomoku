@@ -1,6 +1,6 @@
 # colaGomoku
 
-A relatively powerful Gomoku AI
+A simple Gomoku AI
 
 ## 环境
 
