@@ -3,10 +3,12 @@
 #include <chrono>
 using namespace std;
 
+#define TEST2
+
 #ifdef TEST
 int cnt, cntt;
 int tcut, hcut, bcut, rewrite;
-double cntex, totex;
+double pacut[10], pbcut[10], cntex, totex;
 #endif
 
 enum Piece :char {
@@ -31,9 +33,9 @@ unsigned short flower[16][16][16][16];
 unsigned char decode[256][256];
 unsigned long long pieceHash[16][16][2];
 
-struct PatternConstructor {
-	static const int pattern_num = 37;
-	static const int type_num = 14;
+namespace Data {
+	const int pattern_num = 37;
+	const int type_num = 14;
 	const int eval[type_num] = {
 		0,
 		2,4,5,			5,7,	//2
@@ -89,7 +91,9 @@ struct PatternConstructor {
 
 	{1,1,1,1,1},//5
 	};
+}
 
+struct ACautomation {
 	struct trie_node {
 		unsigned char id = 0;
 		int father = 0;
@@ -99,9 +103,9 @@ struct PatternConstructor {
 	int root, cnt_node;
 	void build_trie() {
 		root = ++cnt_node;
-		for (int i = 0; i < pattern_num; i++) {
+		for (int i = 0; i < Data::pattern_num; i++) {
 			int now = root;
-			for (int c : pattern[i]) {
+			for (int c : Data::pattern[i]) {
 				if (nodes[now].edge[c] != 0)
 					now = nodes[now].edge[c];
 				else {
@@ -110,7 +114,7 @@ struct PatternConstructor {
 					now = nodes[now].edge[c];
 				}
 			}
-			nodes[now].id = idx[i];
+			nodes[now].id = Data::idx[i];
 		}
 	}
 	void get_fail() {
@@ -140,17 +144,18 @@ struct PatternConstructor {
 			}
 		}
 	}
-	PatternConstructor() {
+	ACautomation() {
 		memset(nodes, 0, sizeof(nodes));
 		root = cnt_node = 0;
 		build_trie();
 		get_fail();
 	}
-	void Construct() {
+	static void EvaluatorInit() {
+		ACautomation* ac = new ACautomation;
 		for (int code1 = 0; code1 < 256; code1++) {
 			for (int code2 = 0; code2 < 256; code2++) {
 				int d[9] = {};
-				int now = root;
+				int now = ac->root;
 				for (int i = 0; i < 4; i++) {
 					int k1 = code1 & (1 << i);
 					int k2 = code2 & (1 << i);
@@ -164,26 +169,27 @@ struct PatternConstructor {
 				}
 				for (int i = 0; i < 9; i++) {
 					int ch = d[i];
-					while (nodes[now].edge[ch] == 0 && nodes[now].fail != 0) now = nodes[now].fail;
-					if (nodes[now].edge[ch] != 0) now = nodes[now].edge[ch];
+					while (ac->nodes[now].edge[ch] == 0 && ac->nodes[now].fail != 0) now = ac->nodes[now].fail;
+					if (ac->nodes[now].edge[ch] != 0) now = ac->nodes[now].edge[ch];
 					else continue;
-					if (decode[code1][code2] < nodes[now].id) {
-						decode[code1][code2] = nodes[now].id;
+					if (decode[code1][code2] < ac->nodes[now].id) {
+						decode[code1][code2] = ac->nodes[now].id;
 					}
 				}
 			}
 		}
+		delete ac;
 		int idx = 0;
-		for (int a = 0; a < type_num; a++) {
-			for (int b = a; b < type_num; b++) {
-				for (int c = b; c < type_num; c++) {
-					for (int d = c; d < type_num; d++, idx++) {
+		for (int a = 0; a < Data::type_num; a++) {
+			for (int b = a; b < Data::type_num; b++) {
+				for (int c = b; c < Data::type_num; c++) {
+					for (int d = c; d < Data::type_num; d++, idx++) {
 						int p[4] = { a,b,c,d };
 						do {
 							flower[p[0]][p[1]][p[2]][p[3]] = idx;
 						} while (next_permutation(p, p + 4));
 
-						int score = eval[a] + eval[b] + eval[c] + eval[d];
+						int score = Data::eval[a] + Data::eval[b] + Data::eval[c] + Data::eval[d];
 						fscore[idx] = int(pow(score, 1.15) * 0.75);
 
 						int n[20] = {};
@@ -694,16 +700,29 @@ struct Search {
 	static constexpr int MaxDep = 63;
 	static constexpr int IIDMinDep = 7;
 	static constexpr int HPDep = 4;
-	static constexpr int HAPC[6] = { 0,100,160,250,370,520 };
-	static constexpr int HBPC[6] = { 0,140,200,290,410,560 };
+	static constexpr int HAPCritical[6] = { 0,100,160,250,370,520 };
+	static constexpr int HBPCritical[6] = { 0,140,200,290,410,560 };
 
 	Board bd;
 	Clock timer;
 
-	explicit Search(const vector<pair<int, int>>& moveSeq) {
+	Search() {}
+
+	Search(const vector<pair<int, int>>& moveSeq) {
 		for (pair<int, int> move : moveSeq) {
 			bd.Update(move);
 		}
+	}
+
+	pair<int, int>GenMovePattern(Piece p, enum_ftype pat) {
+		for (int i = bd.nf.range.x1; i <= bd.nf.range.x2; i++) {
+			for (int j = bd.nf.range.y1; j <= bd.nf.range.y2; j++) {
+				if (bd.board[i][j] != Empty)continue;
+				if (bd.unit[i][j].ftype[p] >= pat)return make_pair(i, j);
+			}
+		}
+		assert(0);
+		return nullCoord;
 	}
 
 	int Root(int alpha, int beta, float dep, int step, pair<int, int>& decision) {
@@ -813,10 +832,16 @@ struct Search {
 		}
 
 		if (dep <= HPDep) {
-			if (Eval - HBPC[(int)floorf(dep)] >= beta) {
+			if (Eval - HBPCritical[(int)floorf(dep)] >= beta) {
+#ifdef TEST
+				pbcut[(int)floorf(dep)]++;
+#endif
 				return Eval;
 			}
-			if (!PVsearch && Eval + HAPC[(int)floorf(dep)] <= alpha) {
+			if (!PVsearch && Eval + HAPCritical[(int)floorf(dep)] <= alpha) {
+#ifdef TEST
+				pacut[(int)floorf(dep)]++;
+#endif
 				return Eval;
 			}
 		}
@@ -962,13 +987,7 @@ struct Search {
 			return make_pair(7, 7);
 		}
 		if (bd.nf.cntT[T5][bd.nf.self]) {
-			for (int i = bd.nf.range.x1; i <= bd.nf.range.x2; i++) {
-				for (int j = bd.nf.range.y1; j <= bd.nf.range.y2; j++) {
-					if (bd.board[i][j] != Empty)continue;
-					if (bd.unit[i][j].ftype[bd.nf.self] >= T5)return make_pair(i, j);
-				}
-			}
-			return nullCoord;
+			return GenMovePattern(bd.nf.self, T5);
 		}
 		if (bd.cntPiece == 225) {
 			return nullCoord;
@@ -998,6 +1017,7 @@ struct Search {
 	}
 };
 
+#ifdef TEST
 #include<graphics.h>
 #include<ctime>
 #include <conio.h>
@@ -1300,6 +1320,21 @@ public:
 				if (msg.message == WM_LBUTTONDOWN) {
 					if (Isin(x, y) && bd.board[x][y] == Empty) {
 						Update(x, y);
+						/*cout << nf.evaluation[P1] << '\n';
+						for (int i = 0; i < 15; i++) {
+							for (int j = 0; j < 15; j++) {
+								if (board[i][j] == Empty)
+									cout << bd.unit[i][j].fscore[P1] << "\t";
+								else cout << "-\t";
+							}
+							cout << "\n";
+						}*/
+						/*for (int j = 0; j < 5; j++)
+							cout << nf.cntT[j][0] << " ";
+						cout << "\n";
+						for (int j = 0; j < 5; j++)
+							cout << nf.cntT[j][1] << " ";
+						cout << "\n";*/
 					}
 				}
 			}
@@ -1335,6 +1370,17 @@ public:
 				cout << "BETA截断: " << bcut << "\n";
 				bcut = 0;
 				cout << "平均扩展节点数; " << totex / max(cntex, 1.0) << "\n";
+				cout << "启发式截断:\n";
+				for (int i = 0; i < 10; i++) {
+					cout << pacut[i] << " ";
+					pacut[i] = 0;
+				}
+				cout << '\n';
+				for (int i = 0; i < 10; i++) {
+					cout << pbcut[i] << " ";
+					pbcut[i] = 0;
+				}
+				cout << '\n';
 				cout << "HASH覆盖: " << rewrite << "\n";
 				rewrite = 0;
 				cout << "\n";
@@ -1362,8 +1408,30 @@ public:
 };
 
 signed main() {
-	PatternConstructor p;
-	p.Construct();
-	GUI draw;
-	draw.Run();
+	ACautomation::EvaluatorInit();
+	GUI* draw = new GUI;
+	draw->Run();
+	delete draw;
 }
+#endif
+
+#ifdef TEST2
+signed main() {
+	ACautomation::EvaluatorInit();
+	vector<pair<int, int>> vec;
+	int n; cin >> n;
+	while (1) {
+		int x, y;
+		cin >> x >> y;
+		if (x != -1) {
+			vec.push_back(make_pair(x, y));
+		}
+		Search s(vec);
+		pair<int, int> p = s.bot_decision();
+		vec.push_back(p);
+		printf("%d %d\n", p.first, p.second);
+		printf(">>>BOTZONE_REQUEST_KEEP_RUNNING<<<\n");
+		cout << flush;
+	}
+}
+#endif
