@@ -6,7 +6,7 @@ A relatively powerful Gomoku AI
 
 CPP17
 
-测试图形界面需要 Windows easyX
+测试图形界面需要 Windows [easyX](https://easyx.cn/)
 
 ## Botzone
 GOMOKU
